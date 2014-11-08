@@ -76,8 +76,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="RawEncoder.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Encoder.h" />
+    <ClInclude Include="RawEncoder.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>

@@ -8,6 +8,7 @@
 #include <commctrl.h>
 
 #include "resource.h"
+#include "RawEncoder.h"
 
 #include <string>
 #include <vector>
@@ -31,6 +32,8 @@ struct DeviceInfo
 
 vector<DeviceInfo> DevicesList;
 size_t default_device;
+
+IEncoder *Encoder;
 
 HRESULT DeviceGetInfo(IMMDevice *pDevice, DeviceInfo* di)
 {
@@ -158,6 +161,60 @@ enum
 	ERROR_FILE_WRITE,
 } ERROR_CAPTURE;
 
+const wchar_t* GetErrorString(int error)
+{
+	switch (error)
+	{
+	case ERROR_COM_FAILED: return L"CoUninitialize failed";
+	case ERROR_ENUMERATOR: return L"CoCreateInstance(IMMDeviceEnumerator) failed";
+	case ERROR_DEVICE_NOT_FOUND: return L"Audio Device not found";
+	case ERROR_DEVICE_ENDPOINT: return L"IMMDevice->QueryInterface(IMMEndpoint) failed";
+	case ERROR_ENDPOINT_FLOW: return L"IMMEndpoint->GetDataFlow() failed";
+	case ERROR_AUDIO_CLIENT: return L"IMMDevice->Activate(IAudioClient) failed";
+	case ERROR_AUDIO_FORMAT: return L"IAudioClient->GetMixFormat() failed";
+	case ERROR_AUDIO_INIT: return L"IAudioClient->Initialize() failed";
+	case ERROR_AUDIO_CAPTURE: return L"IAudioClient->GetService(IAudioCaptureClient) failed";
+	case ERROR_CAPTURE_START: return L"IAudioClient->Start() failed";
+	case ERROR_PACKET_SIZE: return L"IAudioCaptureClient->GetNextPacketSize() failed";
+	case ERROR_GET_BUFFER: return L"IAudioCaptureClient->GetBuffer() failed";
+	case ERROR_RELEASE_BUFFER: return L"IAudioCaptureClient->ReleaseBuffer() failed";
+	case ERROR_FILE_OPEN: return L"Can't create file";
+	case ERROR_FILE_WRITE: return L"Can't write in file (out of space?)";
+	default: return NULL;
+	}
+}
+
+wstring GetThreadErrorString(HANDLE thread, const wchar_t* thread_name)
+{
+	wstring error_message;
+	DWORD exit;
+	if (!GetExitCodeThread(thread, &exit))
+		return wstring(L"Can't get ")+thread_name+L" thread exit code";
+
+	const wchar_t *msg;
+	wchar_t buff[15];
+	if (CaptureThreadHandle == 0)
+		return wstring(L"Can't create ")+thread_name+L" thread";
+	else if (exit != 0)
+	{
+		error_message = thread_name;
+		error_message += L" thread error: ";
+		if (exit & ENCODER_ERROR_MASK)
+			msg = Encoder->GetErrorString(exit);
+		else
+			msg = GetErrorString(exit);
+		if (msg)
+			error_message += msg;
+		else
+		{
+			wsprintf(buff,L"0x%X",exit);
+			error_message += L"Unknown error: ";
+			error_message += buff;
+		}
+	}
+	return error_message;
+}
+
 BYTE EncodeBuffer[ENCODE_BUFFER_SIZE];
 int WriteIndex;
 int ReadIndex;
@@ -180,6 +237,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 	IMMEndpoint *pEndpoint = NULL;
 	IAudioClient *pAudioClient = NULL;
 	IAudioCaptureClient *pAudioCaptureClient = NULL;
+	WAVEFORMATEX *pwfx = NULL;
 
 #define ERROR_EXIT(result) if (FAILED(hr)) { res = result; goto Exit;} else (void*)0
 
@@ -189,7 +247,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 		(void**)&pEnumerator);
 
 	ERROR_EXIT(ERROR_ENUMERATOR);
-	
+
 	hr = pEnumerator->GetDevice(id, &pDevice);
 
 	ERROR_EXIT(ERROR_DEVICE_NOT_FOUND);
@@ -210,19 +268,16 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 
 	ERROR_EXIT(ERROR_AUDIO_CLIENT);
 
-	WAVEFORMATEX *pwfx;
-
-	WAVEFORMATEX format;
-
 	hr = pAudioClient->GetMixFormat(&pwfx);
    
 	ERROR_EXIT(ERROR_AUDIO_FORMAT);
 
-	int format_size = pwfx->cbSize;
-	if (format_size > sizeof(WAVEFORMATEX))
-		format_size = sizeof(WAVEFORMATEX);
-
-	memcpy(&format,pwfx,format_size);
+	hr = Encoder->Init(pwfx);
+	if (hr != 0)
+	{
+		res = hr;
+		goto Exit;
+	}
 
 	DWORD streamflags = 0;
 	if (dataflow == eRender)
@@ -231,13 +286,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 	hr = pAudioClient->Initialize(
 		AUDCLNT_SHAREMODE_SHARED, streamflags, 0, 0, pwfx, NULL);
 
-	if (FAILED(hr))
-	{
-		CoTaskMemFree(pwfx);
-		ERROR_EXIT(ERROR_AUDIO_INIT);
-	}
-
-	CoTaskMemFree(pwfx);
+	ERROR_EXIT(ERROR_AUDIO_INIT);
 
 	hr = pAudioClient->GetService(IID_IAudioCaptureClient, (void**)&pAudioCaptureClient);
 
@@ -268,7 +317,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 
             ERROR_EXIT(ERROR_GET_BUFFER);
 
-			int size = samples*format.nChannels*format.wBitsPerSample/8;
+			int size = samples*pwfx->nChannels*pwfx->wBitsPerSample/8;
 			for (int i=0; i<size; ++i)
 			{
 				EncodeBuffer[WriteIndex] = pData[i];
@@ -284,10 +333,14 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 	}
 
 Exit:
+	if (pwfx)
+		CoTaskMemFree(pwfx);
 	if (pAudioCaptureClient)
 		pAudioCaptureClient->Release();
 	if (pAudioClient)
 		pAudioClient->Release();
+	if (pEndpoint)
+		pEndpoint->Release();
 	if (pDevice)
 		pDevice->Release();
 	if (pEnumerator)
@@ -299,34 +352,32 @@ Exit:
 
 DWORD WINAPI EncodeThread(LPVOID lpParameter)
 {
-	FILE *f = fopen("recording.raw","wb");
-	if (!f)
-		return ERROR_FILE_OPEN;
-	while (!bDone)
+	int res;
+	while (true)
 	{
 		Sleep(1);
-		while (ReadIndex != WriteIndex)
+		volatile int wi = WriteIndex;
+		if (bDone && ReadIndex == wi)
+			break;
+
+		while (ReadIndex != wi)
 		{
-			int r = fwrite(EncodeBuffer+ReadIndex,1,1,f);
-			if (r != 1)
+			if (ReadIndex < wi)
 			{
-				fclose(f);
-				return ERROR_FILE_WRITE;
+				res = Encoder->Encode(EncodeBuffer + ReadIndex, wi - ReadIndex);
+				if (res != 0)
+					return res;
+				ReadIndex = wi;
 			}
-			ReadIndex = (ReadIndex+1)&(ENCODE_BUFFER_SIZE-1);
+			else
+			{
+				res = Encoder->Encode(EncodeBuffer + ReadIndex, ENCODE_BUFFER_SIZE - ReadIndex);
+				if (res != 0)
+					return res;
+				ReadIndex = 0;
+			}
 		}
 	}
-	while (ReadIndex != WriteIndex)
-	{
-		int r = fwrite(EncodeBuffer+ReadIndex,1,1,f);
-		if (r != 1)
-		{
-			fclose(f);
-			return ERORR_FILE_WRITE;
-		}
-		ReadIndex = (ReadIndex+1)&(ENCODE_BUFFER_SIZE-1);
-	}
-	fclose(f);
 	return 0;
 }
 
@@ -356,6 +407,7 @@ void InitDlg(HWND hDlg)
 {
 	CaptureThreadHandle = NULL;
 	EncodeThreadHandle = NULL;
+	Encoder = NULL;
 
 	RefreshDevices(hDlg);
 
@@ -371,6 +423,7 @@ void Start(HWND hDlg)
 		MessageBox(hDlg, L"Invalid Device Selection", L"Error", MB_OK | MB_ICONERROR);
 		return;
 	}
+	Encoder = new RawEncoder("recording");
 	WriteIndex = 0;
 	ReadIndex = 0;
 	bDone = false;
@@ -392,19 +445,47 @@ void CheckThreads(HWND hDlg)
 {
 	if (EncodeThreadHandle || CaptureThreadHandle)
 	{
-		wchar_t buff[100];
-		DWORD captureExit;
-		DWORD encodeExit;
-		GetExitCodeThread(CaptureThreadHandle, &captureExit);
-		GetExitCodeThread(EncodeThreadHandle, &encodeExit);
-		wsprintf(buff, L"%d %d", captureExit, encodeExit);
-		SetWindowText(hDlg,buff);
+		DWORD captureExit = 0;
+		DWORD encodeExit = 0;
+
+		if (CaptureThreadHandle)
+			GetExitCodeThread(CaptureThreadHandle, &captureExit);
+		if (EncodeThreadHandle)
+			GetExitCodeThread(EncodeThreadHandle, &encodeExit);
+
+		if (captureExit != STILL_ACTIVE
+		 || encodeExit != STILL_ACTIVE)
+			bDone = true;
+
 		if (captureExit != STILL_ACTIVE
 		 && encodeExit != STILL_ACTIVE)
 		{
-			CaptureThreadHandle = NULL;
-			EncodeThreadHandle = NULL;
+			wstring error;
+			if (captureExit != 0
+			 || encodeExit != 0
+			 || CaptureThreadHandle == 0
+			 || EncodeThreadHandle == 0)
+			{
+				error = GetThreadErrorString(CaptureThreadHandle,L"Capture");
+				if (error.length())
+					error += L"\n";
+				error += GetThreadErrorString(EncodeThreadHandle,L"Encode");
+			}
 			TurnButtons(hDlg, false);
+			if (CaptureThreadHandle)
+				CloseHandle(CaptureThreadHandle);
+			CaptureThreadHandle = NULL;
+			if (EncodeThreadHandle)
+				CloseHandle(EncodeThreadHandle);
+			EncodeThreadHandle = NULL;
+			if (Encoder)
+			{
+				Encoder->Finalize();
+				delete(Encoder);
+				Encoder = NULL;
+			}
+			if (error.length())
+				MessageBox(hDlg,error.c_str(),L"Error",MB_ICONERROR|MB_OK);
 		}
 	}
 }
