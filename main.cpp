@@ -17,7 +17,7 @@
 
 using namespace std;
 
-#define ENCODE_BUFFER_SIZE (1<<16)
+#define ENCODE_BUFFER_SIZE (1<<20)
 
 const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
@@ -411,6 +411,8 @@ void InitDlg(HWND hDlg)
 
 	RefreshDevices(hDlg);
 
+	SendDlgItemMessage(hDlg, IDC_PROGRESS, PBM_SETRANGE, 0, (1<<15)<<16);
+	SendDlgItemMessage(hDlg, IDC_LOAD, PBM_SETRANGE, 0, (1<<15)<<16);
 	TurnButtons(hDlg, false);
 	SetTimer(hDlg, 1, 500, NULL);
 }
@@ -490,6 +492,23 @@ void CheckThreads(HWND hDlg)
 	}
 }
 
+void UpdateProgress(HWND hDlg)
+{
+	volatile int ri = ReadIndex;
+	volatile int wi = WriteIndex;
+	if (wi < ri)
+		wi += ENCODE_BUFFER_SIZE;
+
+	int rp = MulDiv(ri, (1<<15), ENCODE_BUFFER_SIZE);
+	int wp = MulDiv(wi-ri, (1<<15), ENCODE_BUFFER_SIZE);
+	SendDlgItemMessage(hDlg, IDC_PROGRESS, PBM_SETPOS, rp, 0);
+	if (rp) // trick to avoid smooth step-increasing animation
+		SendDlgItemMessage(hDlg, IDC_PROGRESS, PBM_SETPOS, rp-1, 0);
+	SendDlgItemMessage(hDlg, IDC_LOAD, PBM_SETPOS, wp, 0);
+	if (wp) // trick to avoid smooth step-increasing animation
+		SendDlgItemMessage(hDlg, IDC_LOAD, PBM_SETPOS, wp-1, 0);
+}
+
 INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 {
 	switch (uCmd)
@@ -518,6 +537,7 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 		break;
 	case WM_TIMER:
 		CheckThreads(hDlg);
+		UpdateProgress(hDlg);
 		break;
 	}
 	return FALSE;
