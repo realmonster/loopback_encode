@@ -9,6 +9,7 @@
 
 #include "resource.h"
 #include "RawEncoder.h"
+#include "PipeEncoder.h"
 
 #include <string>
 #include <vector>
@@ -425,7 +426,8 @@ void Start(HWND hDlg)
 		MessageBox(hDlg, L"Invalid Device Selection", L"Error", MB_OK | MB_ICONERROR);
 		return;
 	}
-	Encoder = new RawEncoder("recording");
+	//Encoder = new RawEncoder("recording");
+	Encoder = new PipeEncoder(L"ffmpeg.exe -f f32le -ar 44100 -ac 2 -i pipe:0 qweqweqwe.flac");
 	WriteIndex = 0;
 	ReadIndex = 0;
 	bDone = false;
