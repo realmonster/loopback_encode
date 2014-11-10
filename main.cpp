@@ -322,6 +322,9 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 
             ERROR_EXIT(ERROR_GET_BUFFER);
 
+			if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
+				++Lags;
+
 			int size = samples*pwfx->nChannels*pwfx->wBitsPerSample/8;
 			for (int i=0; i<size; ++i)
 			{
