@@ -219,7 +219,9 @@ wstring GetThreadErrorString(HANDLE thread, const wchar_t* thread_name)
 BYTE EncodeBuffer[ENCODE_BUFFER_SIZE];
 int WriteIndex;
 int ReadIndex;
+int Lags;
 bool bDone;
+WAVEFORMATEX format;
 
 DWORD WINAPI CaptureThread(LPVOID lpParameter)
 {
@@ -279,6 +281,8 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 		res = hr;
 		goto Exit;
 	}
+
+	memcpy(&format, pwfx, sizeof(format) < pwfx->cbSize ? sizeof(format) : pwfx->cbSize);
 
 	DWORD streamflags = 0;
 	if (dataflow == eRender)
@@ -390,6 +394,7 @@ void TurnButtons(HWND hDlg, bool recording)
 	EnableWindow(GetDlgItem(hDlg, IDCANCEL), rec);
 	EnableWindow(GetDlgItem(hDlg, IDC_DEVICES), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_REFRESH), nrec);
+	EnableWindow(GetDlgItem(hDlg, IDC_ENCODER), nrec);
 }
 
 void RefreshDevices(HWND hDlg)
@@ -412,6 +417,11 @@ void InitDlg(HWND hDlg)
 
 	RefreshDevices(hDlg);
 
+	HWND encoders = GetDlgItem(hDlg ,IDC_ENCODER);
+	ComboBox_AddString(encoders, L"RAW");
+	ComboBox_AddString(encoders, L"Pipe");
+	ComboBox_SetCurSel(encoders, 0);
+
 	SendDlgItemMessage(hDlg, IDC_PROGRESS, PBM_SETRANGE, 0, (1<<15)<<16);
 	SendDlgItemMessage(hDlg, IDC_LOAD, PBM_SETRANGE, 0, (1<<15)<<16);
 	TurnButtons(hDlg, false);
@@ -426,10 +436,17 @@ void Start(HWND hDlg)
 		MessageBox(hDlg, L"Invalid Device Selection", L"Error", MB_OK | MB_ICONERROR);
 		return;
 	}
-	//Encoder = new RawEncoder("recording");
-	Encoder = new PipeEncoder(L"ffmpeg.exe -f f32le -ar 44100 -ac 2 -i pipe:0 qweqweqwe.flac");
+
+	WCHAR text[512];
+	GetDlgItemText(hDlg, IDC_EDIT1, text, 512);
+	if (ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_ENCODER)) == 0)
+		Encoder = new RawEncoder(text);
+	else
+		Encoder = new PipeEncoder(text);
+
 	WriteIndex = 0;
 	ReadIndex = 0;
+	Lags = 0;
 	bDone = false;
 	TurnButtons(hDlg, true);
 	EncodeThreadHandle = CreateThread(NULL, NULL, EncodeThread, NULL, 0, NULL);
@@ -494,6 +511,17 @@ void CheckThreads(HWND hDlg)
 	}
 }
 
+void UpdateStatus(HWND hDlg)
+{
+	WCHAR buff[100];
+	if (format.nSamplesPerSec)
+		_swprintf(buff, L"Lags: %d Bits: %d Channels: %d Rate: %dHz",
+			Lags, format.wBitsPerSample, format.nChannels, format.nSamplesPerSec);
+	else
+		_swprintf(buff, L"Lags: %d", Lags);
+	SetDlgItemText(hDlg, IDC_STATUS, buff);
+}
+
 void UpdateProgress(HWND hDlg)
 {
 	volatile int ri = ReadIndex;
@@ -540,6 +568,7 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 	case WM_TIMER:
 		CheckThreads(hDlg);
 		UpdateProgress(hDlg);
+		UpdateStatus(hDlg);
 		break;
 	}
 	return FALSE;

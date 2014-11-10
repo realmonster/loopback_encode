@@ -2,15 +2,15 @@
 
 #include <cstring>
 
-RawEncoder::RawEncoder(const char *filename) : f(NULL)
+RawEncoder::RawEncoder(const wchar_t *filename) : f(NULL)
 {
-	name=(char*)malloc(strlen(filename)+1);
-	strcpy(name,filename);
+	name=(wchar_t*)malloc((wcslen(filename)+1)*sizeof(wchar_t));
+	wcscpy(name, filename);
 }
 
 DWORD RawEncoder::Init(const WAVEFORMATEX *format)
 {
-	f = fopen("recording.raw","wb");
+	f = _wfopen(name, L"wb");
 	if (!f)
 		return ENCODER_ERROR_MASK;
 	return 0;

@@ -9,9 +9,9 @@
 struct RawEncoder : IEncoder
 {
 	FILE *f;
-	char *name;
+	wchar_t *name;
 
-	RawEncoder(const char *filename);
+	RawEncoder(const wchar_t *filename);
 	DWORD Init(const WAVEFORMATEX *format);
 	DWORD Finalize();
 	DWORD Encode(BYTE *data, int size);
