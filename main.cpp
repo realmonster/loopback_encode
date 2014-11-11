@@ -39,6 +39,7 @@ size_t default_device;
 IEncoder *Encoder;
 
 int BufferRequest;
+int CaptureUseFormat;
 
 HANDLE CaptureThreadHandle;
 HANDLE EncodeThreadHandle;
@@ -157,6 +158,7 @@ void DevicesListGet()
 enum
 {
 	ERROR_COM_FAILED = 1,
+	ERROR_COM_ALLOC_FAILED,
 	ERROR_ENUMERATOR,
 	ERROR_DEVICE_NOT_FOUND,
 	ERROR_DEVICE_ENDPOINT,
@@ -178,6 +180,7 @@ const wchar_t* GetErrorString(int error)
 	switch (error)
 	{
 	case ERROR_COM_FAILED: return L"CoUninitialize failed";
+	case ERROR_COM_ALLOC_FAILED: return L"CoTaskMemAlloc failed (out of memory)";
 	case ERROR_ENUMERATOR: return L"CoCreateInstance(IMMDeviceEnumerator) failed";
 	case ERROR_DEVICE_NOT_FOUND: return L"Audio Device not found";
 	case ERROR_DEVICE_ENDPOINT: return L"IMMDevice->QueryInterface(IMMEndpoint) failed";
@@ -275,9 +278,25 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 
 	ERROR_EXIT(ERROR_AUDIO_CLIENT);
 
-	hr = pAudioClient->GetMixFormat(&pwfx);
+	if (CaptureUseFormat)
+	{
+		int size = sizeof(WAVEFORMATEX);
+		if (format.Format.wFormatTag != WAVE_FORMAT_PCM)
+			size += format.Format.cbSize;
+		pwfx = (WAVEFORMATEX*)CoTaskMemAlloc(size);
+		if (!pwfx)
+		{
+			res = ERROR_COM_ALLOC_FAILED;
+			goto Exit;
+		}
+		memcpy(pwfx, &format, size);
+	}
+	else
+	{
+		hr = pAudioClient->GetMixFormat(&pwfx);
    
-	ERROR_EXIT(ERROR_AUDIO_FORMAT);
+		ERROR_EXIT(ERROR_AUDIO_FORMAT);
+	}
 
 	hr = Encoder->Init(pwfx);
 	if (hr != 0)
@@ -286,10 +305,10 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 		goto Exit;
 	}
 
-	if (pwfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE)
-		memcpy(&format, pwfx, sizeof(format));
+	if (pwfx->wFormatTag != WAVE_FORMAT_PCM)
+		memcpy(&format, pwfx, sizeof(WAVEFORMATEX) + pwfx->cbSize);
 	else
-		memcpy(&format, pwfx, sizeof(format) < pwfx->cbSize ? sizeof(format) : pwfx->cbSize);
+		memcpy(&format, pwfx, sizeof(WAVEFORMATEX));
 
 	DWORD streamflags = 0;
 	if (dataflow == eRender)
@@ -430,6 +449,12 @@ void InitDlg(HWND hDlg)
 
 	SetDlgItemText(hDlg, IDC_BUFFERREQUEST, L"0");
 
+	HWND formats = GetDlgItem(hDlg ,IDC_CAPTURE_FORMAT);
+	ComboBox_AddString(formats, L"Auto");
+	ComboBox_AddString(formats, L"Integer PCM");
+	ComboBox_AddString(formats, L"Float PCM");
+	ComboBox_SetCurSel(formats, 0);
+
 	HWND encoders = GetDlgItem(hDlg ,IDC_ENCODER);
 	ComboBox_AddString(encoders, L"RAW");
 	ComboBox_AddString(encoders, L"Pipe");
@@ -465,6 +490,64 @@ void Start(HWND hDlg)
 	}
 	else
 		BufferRequest = 0;
+
+	CaptureUseFormat = ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_CAPTURE_FORMAT));
+	if (CaptureUseFormat)
+	{
+		int count, len2, bits, channels, rate;
+
+		len = GetDlgItemText(hDlg, IDC_CAPTURE_BITS, text, 512);
+		count = swscanf(text, L"%d%n", &bits, &len2);
+		if (count != 1 || len != len2 || !len2 || !len || !bits)
+		{
+			MessageBox(hDlg, L"Invalid capture bits", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+
+		len = GetDlgItemText(hDlg, IDC_CAPTURE_CHANNELS, text, 512);
+		count = swscanf(text, L"%d%n", &channels, &len2);
+		if (count != 1 || len != len2 || !len2 || !len || !channels)
+		{
+			MessageBox(hDlg, L"Invalid capture channels", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+
+		len = GetDlgItemText(hDlg, IDC_CAPTURE_RATE, text, 512);
+		count = swscanf(text, L"%d%n", &rate, &len2);
+		if (count != 1 || len != len2 || !len2 || !len || !channels)
+		{
+			MessageBox(hDlg, L"Invalid capture channels", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+
+		if (CaptureUseFormat < 3)
+		{
+			//format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+			if (CaptureUseFormat == 1)
+				format.Format.wFormatTag = WAVE_FORMAT_PCM;
+				//format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+			else
+				format.Format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+				//format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+
+			WAVEFORMATEX &ex = format.Format;
+			ex.wBitsPerSample = bits;
+			ex.nChannels = channels;
+			ex.nSamplesPerSec = rate;
+
+			ex.cbSize = 0;
+			ex.nAvgBytesPerSec = MulDiv(channels*rate,bits,8);
+			ex.nBlockAlign = MulDiv(channels,bits,8);
+
+			//format.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
+			//format.Samples.wValidBitsPerSample = bits;
+		}
+		else
+		{
+			MessageBox(hDlg, L"Invalid capture format", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+	}
 
 	GetDlgItemText(hDlg, IDC_EDIT1, text, 512);
 	if (ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_ENCODER)) == 0)
