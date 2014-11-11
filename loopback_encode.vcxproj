@@ -76,12 +76,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="FormatNames.cpp" />
+    <ClCompile Include="Formats.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PipeEncoder.cpp" />
     <ClCompile Include="RawEncoder.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Encoder.h" />
+    <ClInclude Include="Formats.h" />
     <ClInclude Include="PipeEncoder.h" />
     <ClInclude Include="RawEncoder.h" />
     <ClInclude Include="resource.h" />

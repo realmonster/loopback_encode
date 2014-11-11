@@ -11,6 +11,8 @@
 #include "RawEncoder.h"
 #include "PipeEncoder.h"
 
+#include "Formats.h"
+
 #include <string>
 #include <vector>
 
@@ -37,6 +39,16 @@ size_t default_device;
 IEncoder *Encoder;
 
 int BufferRequest;
+
+HANDLE CaptureThreadHandle;
+HANDLE EncodeThreadHandle;
+
+BYTE EncodeBuffer[ENCODE_BUFFER_SIZE];
+int WriteIndex;
+int ReadIndex;
+int Lags;
+bool bDone;
+WAVEFORMATEXTENSIBLE format;
 
 HRESULT DeviceGetInfo(IMMDevice *pDevice, DeviceInfo* di)
 {
@@ -142,9 +154,6 @@ void DevicesListGet()
 	CoUninitialize();
 }
 
-HANDLE CaptureThreadHandle;
-HANDLE EncodeThreadHandle;
-
 enum
 {
 	ERROR_COM_FAILED = 1,
@@ -218,13 +227,6 @@ wstring GetThreadErrorString(HANDLE thread, const wchar_t* thread_name)
 	return error_message;
 }
 
-BYTE EncodeBuffer[ENCODE_BUFFER_SIZE];
-int WriteIndex;
-int ReadIndex;
-int Lags;
-bool bDone;
-WAVEFORMATEX format;
-
 DWORD WINAPI CaptureThread(LPVOID lpParameter)
 {
 	LPCWSTR id = (LPCWSTR)lpParameter;
@@ -284,7 +286,10 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 		goto Exit;
 	}
 
-	memcpy(&format, pwfx, sizeof(format) < pwfx->cbSize ? sizeof(format) : pwfx->cbSize);
+	if (pwfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+		memcpy(&format, pwfx, sizeof(format));
+	else
+		memcpy(&format, pwfx, sizeof(format) < pwfx->cbSize ? sizeof(format) : pwfx->cbSize);
 
 	DWORD streamflags = 0;
 	if (dataflow == eRender)
@@ -534,14 +539,49 @@ void CheckThreads(HWND hDlg)
 	}
 }
 
+void UpdateFormat(HWND hDlg)
+{
+	const WAVEFORMATEX &ex = format.Format;
+	WORD id;
+	LPCWSTR format_name;
+
+	if (!ex.nChannels)
+	{
+		SetDlgItemText(hDlg, IDC_FORMAT_INFO, L"");
+		return;
+	}
+
+	WCHAR tmp[10];
+	WCHAR info[200];
+
+	if (FormatDetect(&ex, &id))
+	{
+		format_name = GetFormatName(id);
+		if (!format_name)
+		{
+			swprintf(tmp, L"0x%X", id);
+			format_name = tmp;
+		}
+	}
+	else
+		format_name = L"Unknown";
+
+	swprintf(info, L"Format: %s Bits: %d Channels: %d Rate: %dHz",
+		format_name, ex.wBitsPerSample, ex.nChannels, ex.nSamplesPerSec);
+	if (ex.wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+	{
+#define GUID_FORMAT "%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX"
+#define GUID_ARG(guid) guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]
+		swprintf(info+wcslen(info), L"\nSubFormat: (" TEXT(GUID_FORMAT) L") Valid bits: %d",
+			GUID_ARG(format.SubFormat), format.Samples.wValidBitsPerSample);
+	}
+	SetDlgItemText(hDlg, IDC_FORMAT_INFO, info);
+}
+
 void UpdateStatus(HWND hDlg)
 {
-	WCHAR buff[100];
-	if (format.nSamplesPerSec)
-		_swprintf(buff, L"Lags: %d Bits: %d Channels: %d Rate: %dHz",
-			Lags, format.wBitsPerSample, format.nChannels, format.nSamplesPerSec);
-	else
-		_swprintf(buff, L"Lags: %d", Lags);
+	WCHAR buff[50];
+	_swprintf(buff, L"Lags: %d", Lags);
 	SetDlgItemText(hDlg, IDC_STATUS, buff);
 }
 
@@ -590,6 +630,7 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 		break;
 	case WM_TIMER:
 		CheckThreads(hDlg);
+		UpdateFormat(hDlg);
 		UpdateProgress(hDlg);
 		UpdateStatus(hDlg);
 		break;
@@ -600,6 +641,7 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 int CALLBACK WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	InitCommonControls();
+	InitFormatNames();
 	DialogBox(hInstance, MAKEINTRESOURCE(IDD_ENCODE), NULL, EncodeProc);
 	return 0;
 }
