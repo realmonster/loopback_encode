@@ -36,6 +36,8 @@ size_t default_device;
 
 IEncoder *Encoder;
 
+int BufferRequest;
+
 HRESULT DeviceGetInfo(IMMDevice *pDevice, DeviceInfo* di)
 {
 	LPWSTR id;
@@ -289,7 +291,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 		streamflags = AUDCLNT_STREAMFLAGS_LOOPBACK;
 
 	hr = pAudioClient->Initialize(
-		AUDCLNT_SHAREMODE_SHARED, streamflags, 0, 0, pwfx, NULL);
+		AUDCLNT_SHAREMODE_SHARED, streamflags, BufferRequest*10000LL, 0, pwfx, NULL);
 
 	ERROR_EXIT(ERROR_AUDIO_INIT);
 
@@ -398,6 +400,7 @@ void TurnButtons(HWND hDlg, bool recording)
 	EnableWindow(GetDlgItem(hDlg, IDC_DEVICES), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_REFRESH), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_ENCODER), nrec);
+	EnableWindow(GetDlgItem(hDlg, IDC_BUFFERREQUEST), nrec);
 }
 
 void RefreshDevices(HWND hDlg)
@@ -420,6 +423,8 @@ void InitDlg(HWND hDlg)
 
 	RefreshDevices(hDlg);
 
+	SetDlgItemText(hDlg, IDC_BUFFERREQUEST, L"0");
+
 	HWND encoders = GetDlgItem(hDlg ,IDC_ENCODER);
 	ComboBox_AddString(encoders, L"RAW");
 	ComboBox_AddString(encoders, L"Pipe");
@@ -441,6 +446,21 @@ void Start(HWND hDlg)
 	}
 
 	WCHAR text[512];
+
+	int len = GetDlgItemText(hDlg, IDC_BUFFERREQUEST, text, 512);
+	if (len)
+	{
+		int len2;
+		int count = swscanf(text, L"%d%n", &BufferRequest, &len2);
+		if (count != 1 || len != len2)
+		{
+			MessageBox(hDlg, L"Invalid Buffer Request Time", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+	}
+	else
+		BufferRequest = 0;
+
 	GetDlgItemText(hDlg, IDC_EDIT1, text, 512);
 	if (ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_ENCODER)) == 0)
 		Encoder = new RawEncoder(text);
