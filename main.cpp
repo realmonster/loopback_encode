@@ -420,12 +420,19 @@ void TurnButtons(HWND hDlg, bool recording)
 {
 	BOOL rec = recording ? TRUE : FALSE;
 	BOOL nrec = recording ? FALSE: TRUE;
+	int n = ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_CAPTURE_FORMAT));
+
 	EnableWindow(GetDlgItem(hDlg, IDOK), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDCANCEL), rec);
 	EnableWindow(GetDlgItem(hDlg, IDC_DEVICES), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_REFRESH), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_ENCODER), nrec);
 	EnableWindow(GetDlgItem(hDlg, IDC_BUFFERREQUEST), nrec);
+
+	EnableWindow(GetDlgItem(hDlg, IDC_CAPTURE_FORMAT), nrec);
+	EnableWindow(GetDlgItem(hDlg, IDC_CAPTURE_BITS), nrec && n != 0);
+	EnableWindow(GetDlgItem(hDlg, IDC_CAPTURE_CHANNELS), nrec && n != 0);
+	EnableWindow(GetDlgItem(hDlg, IDC_CAPTURE_RATE), nrec && n != 0);
 }
 
 void RefreshDevices(HWND hDlg)
@@ -753,7 +760,7 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_COMMAND:
-		switch (wParam)
+		switch (LOWORD(wParam))
 		{
 		case IDOK:
 			Start(hDlg);
@@ -764,8 +771,13 @@ INT_PTR CALLBACK EncodeProc(HWND hDlg, UINT uCmd, WPARAM wParam, LPARAM lParam)
 		case IDC_REFRESH:
 			RefreshDevices(hDlg);
 			break;
+		case IDC_CAPTURE_FORMAT:
+			if (HIWORD(wParam) == CBN_SELCHANGE)
+				TurnButtons(hDlg, false);
+			break;
 		}
 		break;
+
 	case WM_TIMER:
 		CheckThreads(hDlg);
 		UpdateFormat(hDlg);
