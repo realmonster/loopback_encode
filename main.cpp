@@ -439,11 +439,51 @@ void RefreshDevices(HWND hDlg)
 		ComboBox_SetCurSel(devices, default_device);
 }
 
+void CreateTooltip(HWND hDlg, int id, LPWSTR text)
+{
+	static HWND hwndTT = CreateWindowEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, NULL,
+		WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		hDlg, NULL, GetModuleHandle(NULL), NULL);
+
+	SendMessage(hwndTT, TTM_SETMAXTIPWIDTH, 0, (LPARAM)1024);
+
+	if (!hwndTT)
+		return;
+
+	TOOLINFO g_toolItem;
+	g_toolItem.cbSize   = sizeof(TOOLINFO);
+	g_toolItem.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+	g_toolItem.hwnd     = hDlg;
+	g_toolItem.hinst    = GetModuleHandle(NULL);
+	g_toolItem.lpszText = text;
+	g_toolItem.uId      = (UINT_PTR)GetDlgItem(hDlg, id);
+
+	SendMessage(hwndTT, TTM_ADDTOOL, 0, (LPARAM) (LPTOOLINFO) &g_toolItem);
+}
+
 void InitDlg(HWND hDlg)
 {
 	CaptureThreadHandle = NULL;
 	EncodeThreadHandle = NULL;
 	Encoder = NULL;
+
+	CreateTooltip(hDlg, IDC_DEVICES, L"Select a capture device");
+	CreateTooltip(hDlg, IDC_REFRESH, L"Refresh devices list");
+	CreateTooltip(hDlg, IDC_BUFFERREQUEST, L"Request for the buffer from device.\r\nExpressed in milliseconds.");
+	CreateTooltip(hDlg, IDC_CAPTURE_FORMAT, L"Request for certain format from device.");
+	CreateTooltip(hDlg, IDC_CAPTURE_BITS,
+		L"Request for certain bits per sample from device.\r\n");
+	CreateTooltip(hDlg, IDC_CAPTURE_CHANNELS,
+		L"Request for certain channels count from device.\r\n"
+		L"It looks like none of devices accept different channels count from internal count.\r\n"
+		L"Select \"Auto\" to find out internal format.");
+	CreateTooltip(hDlg, IDC_CAPTURE_RATE,
+		L"Request for certain sample rate from device.\r\n"
+		L"It looks like none of devices accept different sample rate from internal rate.\r\n"
+		L"Select \"Auto\" to find out internal format.");
+	CreateTooltip(hDlg, IDC_ENCODER, L"Select encoder.");
+	CreateTooltip(hDlg, IDC_EDIT1, L"If RAW: enter file name\r\nIf Pipe: enter proccess start command line.");
 
 	RefreshDevices(hDlg);
 
@@ -516,7 +556,7 @@ void Start(HWND hDlg)
 		count = swscanf(text, L"%d%n", &rate, &len2);
 		if (count != 1 || len != len2 || !len2 || !len || !channels)
 		{
-			MessageBox(hDlg, L"Invalid capture channels", L"Error", MB_OK | MB_ICONERROR);
+			MessageBox(hDlg, L"Invalid capture rate", L"Error", MB_OK | MB_ICONERROR);
 			return;
 		}
 

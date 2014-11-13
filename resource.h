@@ -4,7 +4,6 @@
 //
 #define IDD_ENCODE                      9
 #define IDC_DEVICES                     1001
-#define IDC_DEVICES2                    1002
 #define IDC_REFRESH                     1002
 #define IDC_PROGRESS                    1004
 #define IDC_LOAD                        1005
