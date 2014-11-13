@@ -81,6 +81,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PipeEncoder.cpp" />
     <ClCompile Include="RawEncoder.cpp" />
+    <ClCompile Include="WavEncoder.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Encoder.h" />
@@ -88,6 +89,7 @@
     <ClInclude Include="PipeEncoder.h" />
     <ClInclude Include="RawEncoder.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="WavEncoder.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="loopback_encode.rc" />

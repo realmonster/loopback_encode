@@ -9,6 +9,7 @@
 
 #include "resource.h"
 #include "RawEncoder.h"
+#include "WavEncoder.h"
 #include "PipeEncoder.h"
 
 #include "Formats.h"
@@ -351,7 +352,7 @@ DWORD WINAPI CaptureThread(LPVOID lpParameter)
 			if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
 				++Lags;
 
-			int size = samples*pwfx->nChannels*pwfx->wBitsPerSample/8;
+			int size = samples*pwfx->nBlockAlign;
 			for (int i=0; i<size; ++i)
 			{
 				EncodeBuffer[WriteIndex] = pData[i];
@@ -497,6 +498,7 @@ void InitDlg(HWND hDlg)
 
 	HWND encoders = GetDlgItem(hDlg ,IDC_ENCODER);
 	ComboBox_AddString(encoders, L"RAW");
+	ComboBox_AddString(encoders, L"Wav");
 	ComboBox_AddString(encoders, L"Pipe");
 	ComboBox_SetCurSel(encoders, 0);
 
@@ -590,10 +592,23 @@ void Start(HWND hDlg)
 	}
 
 	GetDlgItemText(hDlg, IDC_EDIT1, text, 512);
-	if (ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_ENCODER)) == 0)
+
+	int enc = ComboBox_GetCurSel(GetDlgItem(hDlg, IDC_ENCODER));
+	switch(enc)
+	{
+	case 0:
 		Encoder = new RawEncoder(text);
-	else
+		break;
+	case 1:
+		Encoder = new WavEncoder(text);
+		break;
+	case 2:
 		Encoder = new PipeEncoder(text);
+		break;
+	default:
+		MessageBox(hDlg, L"Invalid encoder", L"Error", MB_OK | MB_ICONERROR);
+		return;
+	};
 
 	WriteIndex = 0;
 	ReadIndex = 0;
