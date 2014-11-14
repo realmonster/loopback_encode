@@ -1,6 +1,5 @@
 #include "Formats.h"
 
-#include "Mmreg.h"
 #include "ks.h"
 #include "Ksmedia.h"
 

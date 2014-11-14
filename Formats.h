@@ -3,6 +3,7 @@
 #pragma once
 
 #include <windows.h>
+#include "Mmreg.h"
 
 bool FormatDetect(const WAVEFORMATEX* format, WORD* id);
 bool FormatAllBits(const WAVEFORMATEX* format);

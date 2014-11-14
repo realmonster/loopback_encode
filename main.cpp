@@ -455,6 +455,7 @@ void CreateTooltip(HWND hDlg, int id, LPWSTR text)
 		hDlg, NULL, GetModuleHandle(NULL), NULL);
 
 	SendMessage(hwndTT, TTM_SETMAXTIPWIDTH, 0, (LPARAM)1024);
+	SendMessage(hwndTT, TTM_SETDELAYTIME, TTDT_AUTOPOP, 1<<14);
 
 	if (!hwndTT)
 		return;
@@ -478,7 +479,10 @@ void InitDlg(HWND hDlg)
 
 	CreateTooltip(hDlg, IDC_DEVICES, L"Select a capture device");
 	CreateTooltip(hDlg, IDC_REFRESH, L"Refresh devices list");
-	CreateTooltip(hDlg, IDC_BUFFERREQUEST, L"Request for the buffer from device.\r\nExpressed in milliseconds.");
+	CreateTooltip(hDlg, IDC_BUFFERREQUEST,
+		L"Request for the buffer from device.\r\n"
+		L"Expressed in milliseconds.\r\n"
+		L"Increase it if lags counter is increasing.");
 	CreateTooltip(hDlg, IDC_CAPTURE_FORMAT, L"Request for certain format from device.");
 	CreateTooltip(hDlg, IDC_CAPTURE_BITS,
 		L"Request for certain bits per sample from device.\r\n");
@@ -491,7 +495,14 @@ void InitDlg(HWND hDlg)
 		L"It looks like none of devices accept different sample rate from internal rate.\r\n"
 		L"Select \"Auto\" to find out internal format.");
 	CreateTooltip(hDlg, IDC_ENCODER, L"Select encoder.");
-	CreateTooltip(hDlg, IDC_EDIT1, L"If RAW: enter file name\r\nIf Pipe: enter proccess start command line.");
+	CreateTooltip(hDlg, IDC_EDIT1,
+		L"If RAW or Wav: enter file name\r\n"
+		L"If Pipe: enter proccess start command line.\r\n"
+		L"Auto replace for pipe command line:\r\n"
+		L"%b% - bits count\r\n"
+		L"%c% - channels count\r\n"
+		L"%r% - sample rate in Hz\r\n"
+		L"%f% - format in ffmpeg style");
 
 	RefreshDevices(hDlg);
 

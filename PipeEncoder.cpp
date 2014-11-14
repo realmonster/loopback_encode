@@ -1,6 +1,8 @@
 #include "PipeEncoder.h"
+#include "Formats.h"
 
 #include <cstring>
+#include <string>
 
 PipeEncoder::PipeEncoder(const wchar_t *command_line)
 	: child_stdin_rd(NULL), child_stdin_wr(NULL),
@@ -53,12 +55,81 @@ wchar_t* PipeEncoder::GetErrorString(DWORD error)
 	}
 }
 
+static std::wstring AutoReplace(const wchar_t *command, const WAVEFORMATEX *format)
+{
+	std::wstring res;
+	wchar_t buff[50];
+	for (int i=0; command[i];)
+	{
+		if (command[i] == '%')
+		{
+			if (!wcsncmp(L"%b%", command+i, 3))
+			{
+				swprintf(buff, L"%d", format->wBitsPerSample);
+				res += buff;
+				i+=3;
+				continue;
+			}
+			else if (!wcsncmp(L"%c%", command+i, 3))
+			{
+				swprintf(buff, L"%d", format->nChannels);
+				res += buff;
+				i += 3;
+				continue;
+			}
+			else if (!wcsncmp(L"%r%", command+i, 3))
+			{
+				swprintf(buff, L"%d", format->nSamplesPerSec);
+				res += buff;
+				i += 3;
+				continue;
+			}
+			else if (!wcsncmp(L"%f%", command+i, 3))
+			{
+				WORD id;
+				if (!FormatDetect(format, &id))
+					id = -1;
+
+				switch(id)
+				{
+				case WAVE_FORMAT_PCM:
+					swprintf(buff, L"%c%d%s",
+						format->wBitsPerSample==8?L'u':L's',
+						format->wBitsPerSample,
+						format->wBitsPerSample<=8?L"":L"le");
+					res += buff;
+					break;
+
+				case WAVE_FORMAT_IEEE_FLOAT:
+					if (format->wBitsPerSample == 32)
+						res += L"f32le";
+					else if (format->wBitsPerSample == 64)
+						res += L"f64le";
+					else goto unk;
+					break;
+
+				default:
+				unk:
+					res += L"unknown";
+				}
+				i += 3;
+				continue;
+			}
+		}
+		res += command[i];
+		++i;
+	}
+	return res;
+}
+
 DWORD PipeEncoder::Init(const WAVEFORMATEX *format)
 {
 	SECURITY_ATTRIBUTES attr;
 	HANDLE tmp = NULL;
 	DWORD res = 0;
 	STARTUPINFO start_info;
+	WCHAR* tmp_command = NULL;
+	std::wstring new_command;
 
 	if (!command)
 		return ERROR_OUT_OF_MEMORY;
@@ -88,14 +159,24 @@ DWORD PipeEncoder::Init(const WAVEFORMATEX *format)
 	start_info.hStdInput = child_stdin_rd;
 	start_info.dwFlags |= STARTF_USESTDHANDLES;
 
-	if (!CreateProcess(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &proc_info))
+	new_command = AutoReplace(command, format);
+
+	tmp_command = (WCHAR*)malloc((new_command.length()+1)*sizeof(WCHAR));
+	if (!tmp_command)
+		return ERROR_OUT_OF_MEMORY;
+
+	wcscpy(tmp_command, new_command.c_str());
+	if (!CreateProcess(NULL, tmp_command, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &proc_info))
 		ERROR_EXIT(ERROR_CREATE_PROCESS);
 
+	free(tmp_command);
 	return 0;
 
 #undef ERROR_EXIT
 
 Exit:
+	if (tmp_command)
+		free(tmp_command);
 	if (child_stdin_rd)
 		CloseHandle(child_stdin_rd);
 	if (child_stdin_wr)
